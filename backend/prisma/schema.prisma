@@ -1,0 +1,805 @@
+// ============================================================
+// TaxiFlow — Prisma Schema
+// Multi-tenant: every tenant-specific table has tenant_id
+// Database: PostgreSQL 15+
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── TENANT ───────────────────────────────────────────────
+
+model Tenant {
+  id             String       @id @default(uuid())
+  name           String
+  slug           String       @unique
+  email          String       @unique
+  phone          String
+  address        String       @default("")
+  country        String       @default("GB")
+  currency       String       @default("GBP")
+  timezone       String       @default("Europe/London")
+  distanceUnit   DistanceUnit @default(MILES)
+  logoUrl        String?
+  primaryColor   String       @default("#F59E0B")
+  secondaryColor String       @default("#1F2937")
+  status         TenantStatus @default(TRIAL)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  settings            TenantSettings?
+  apiKeys             TenantApiKey[]
+  subscription        TenantSubscription?
+  users               User[]
+  drivers             Driver[]
+  passengers          Passenger[]
+  vehicles            Vehicle[]
+  bookings            Booking[]
+  payments            Payment[]
+  pricingRules        PricingRule[]
+  zones               Zone[]
+  surgePricing        SurgePricing[]
+  ratings             Rating[]
+  promotions          Promotion[]
+  corporateAccounts   CorporateAccount[]
+  notifications       Notification[]
+  supportTickets      SupportTicket[]
+  driverDocuments     DriverDocument[]
+  payouts             Payout[]
+  invoices            Invoice[]
+
+  @@index([slug])
+  @@index([status])
+  @@map("tenants")
+}
+
+model TenantSettings {
+  id                           String   @id @default(uuid())
+  tenantId                     String   @unique
+  allowScheduledBookings       Boolean  @default(true)
+  allowCashPayments            Boolean  @default(true)
+  allowCardPayments            Boolean  @default(true)
+  autoAssignDriver             Boolean  @default(true)
+  driverAcceptTimeoutSeconds   Int      @default(30)
+  maxSearchRadiusKm            Float    @default(10)
+  requireDriverApproval        Boolean  @default(true)
+  cancellationWindowMinutes    Int      @default(5)
+  ratingEnabled                Boolean  @default(true)
+  corporateEnabled             Boolean  @default(false)
+  whatsappEnabled              Boolean  @default(false)
+  updatedAt                    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_settings")
+}
+
+model TenantApiKey {
+  id          String         @id @default(uuid())
+  tenantId    String
+  provider    ApiKeyProvider
+  // Stored AES-256-GCM encrypted — NEVER plain text
+  encryptedKey String
+  iv           String
+  authTag      String
+  isConfigured Boolean       @default(false)
+  updatedAt    DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@map("tenant_api_keys")
+}
+
+// ─── SUBSCRIPTION ─────────────────────────────────────────
+
+model SubscriptionPlan {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  priceMonthly Float
+  currency     String   @default("GBP")
+  maxDrivers   Int?     // null = unlimited
+  features     String[]
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  subscriptions TenantSubscription[]
+
+  @@map("subscription_plans")
+}
+
+model TenantSubscription {
+  id                   String             @id @default(uuid())
+  tenantId             String             @unique
+  planId               String
+  status               SubscriptionStatus @default(TRIALING)
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  stripeSubscriptionId String?            @unique
+  stripeCustomerId     String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([status])
+  @@map("tenant_subscriptions")
+}
+
+model Invoice {
+  id               String        @id @default(uuid())
+  tenantId         String
+  amount           Float
+  currency         String
+  status           InvoiceStatus @default(PENDING)
+  periodStart      DateTime
+  periodEnd        DateTime
+  stripeInvoiceId  String?       @unique
+  paidAt           DateTime?
+  dueDate          DateTime
+  createdAt        DateTime      @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("invoices")
+}
+
+// ─── USERS ────────────────────────────────────────────────
+
+model User {
+  id            String     @id @default(uuid())
+  tenantId      String
+  email         String?
+  phone         String
+  passwordHash  String?
+  firstName     String
+  lastName      String
+  role          UserRole
+  status        UserStatus @default(PENDING)
+  avatarUrl     String?
+  emailVerified Boolean    @default(false)
+  phoneVerified Boolean    @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver          Driver?
+  passenger       Passenger?
+  ratingsGiven    Rating[]        @relation("RatingGivenBy")
+  ratingsReceived Rating[]        @relation("RatingReceivedBy")
+  notifications   Notification[]
+  supportTickets  SupportTicket[]
+  refreshTokens   RefreshToken[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, phone])
+  @@index([tenantId, role])
+  @@index([tenantId, status])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model OtpCode {
+  id          String   @id @default(uuid())
+  phone       String
+  tenantId    String
+  code        String
+  attempts    Int      @default(0)
+  expiresAt   DateTime
+  verifiedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, phone])
+  @@index([phone, tenantId])
+  @@map("otp_codes")
+}
+
+// ─── DRIVERS ──────────────────────────────────────────────
+
+model Driver {
+  id                 String            @id @default(uuid())
+  tenantId           String
+  userId             String            @unique
+  licenseNumber      String
+  licenseExpiry      DateTime
+  status             DriverStatus      @default(PENDING_APPROVAL)
+  onlineStatus       DriverOnlineStatus @default(OFFLINE)
+  currentLatitude    Float?
+  currentLongitude   Float?
+  currentHeading     Float?
+  lastLocationAt     DateTime?
+  rating             Float             @default(0)
+  totalTrips         Int               @default(0)
+  totalEarnings      Float             @default(0)
+  bankAccountName    String?
+  bankAccountNumber  String?
+  bankSortCode       String?
+  stripeAccountId    String?
+  approvedAt         DateTime?
+  approvedBy         String?
+  suspendedAt        DateTime?
+  suspensionReason   String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicles  Vehicle[]
+  bookings  Booking[]
+  documents DriverDocument[]
+  payouts   Payout[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, onlineStatus])
+  @@index([tenantId, currentLatitude, currentLongitude])
+  @@map("drivers")
+}
+
+model Vehicle {
+  id               String      @id @default(uuid())
+  tenantId         String
+  driverId         String
+  make             String
+  model            String
+  year             Int
+  color            String
+  licensePlate     String
+  vehicleType      VehicleType @default(STANDARD)
+  seats            Int         @default(4)
+  isActive         Boolean     @default(true)
+  insuranceExpiry  DateTime
+  motExpiry        DateTime
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver   Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@unique([tenantId, licensePlate])
+  @@index([tenantId, driverId])
+  @@map("vehicles")
+}
+
+model DriverDocument {
+  id               String         @id @default(uuid())
+  tenantId         String
+  driverId         String
+  type             DocumentType
+  fileUrl          String
+  expiryDate       DateTime?
+  status           DocumentStatus @default(PENDING)
+  verifiedBy       String?
+  verifiedAt       DateTime?
+  rejectionReason  String?
+  uploadedAt       DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, driverId])
+  @@index([status, expiryDate])
+  @@map("driver_documents")
+}
+
+// ─── PASSENGERS ───────────────────────────────────────────
+
+model Passenger {
+  id             String   @id @default(uuid())
+  tenantId       String
+  userId         String   @unique
+  rating         Float    @default(5)
+  totalTrips     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savedAddresses SavedAddress[]
+  bookings       Booking[]
+
+  @@index([tenantId])
+  @@map("passengers")
+}
+
+model SavedAddress {
+  id          String   @id @default(uuid())
+  passengerId String
+  label       String
+  fullAddress String
+  latitude    Float
+  longitude   Float
+  createdAt   DateTime @default(now())
+
+  passenger Passenger @relation(fields: [passengerId], references: [id], onDelete: Cascade)
+
+  @@index([passengerId])
+  @@map("saved_addresses")
+}
+
+// ─── BOOKINGS ─────────────────────────────────────────────
+
+model Booking {
+  id                  String        @id @default(uuid())
+  tenantId            String
+  passengerId         String
+  driverId            String?
+  vehicleId           String?
+  corporateAccountId  String?
+  status              BookingStatus @default(PENDING)
+  pickupAddress       String
+  pickupLatitude      Float
+  pickupLongitude     Float
+  dropoffAddress      String
+  dropoffLatitude     Float
+  dropoffLongitude    Float
+  vehicleType         VehicleType
+  estimatedFare       Float
+  actualFare          Float?
+  distanceKm          Float?
+  durationMinutes     Float?
+  paymentMethod       PaymentMethod
+  paymentStatus       PaymentStatus @default(PENDING)
+  promoCode           String?
+  discountAmount      Float         @default(0)
+  scheduledAt         DateTime?
+  acceptedAt          DateTime?
+  arrivedAt           DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancellationReason  String?
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  passenger        Passenger         @relation(fields: [passengerId], references: [id])
+  driver           Driver?           @relation(fields: [driverId], references: [id])
+  vehicle          Vehicle?          @relation(fields: [vehicleId], references: [id])
+  corporateAccount CorporateAccount? @relation(fields: [corporateAccountId], references: [id])
+  trackingPoints   BookingTracking[]
+  payment          Payment?
+  ratings          Rating[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, passengerId])
+  @@index([tenantId, driverId])
+  @@index([tenantId, createdAt])
+  @@index([scheduledAt])
+  @@map("bookings")
+}
+
+model BookingTracking {
+  id          String   @id @default(uuid())
+  bookingId   String
+  latitude    Float
+  longitude   Float
+  heading     Float
+  speed       Float
+  recordedAt  DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, recordedAt])
+  @@map("booking_tracking")
+}
+
+// ─── PAYMENTS ─────────────────────────────────────────────
+
+model Payment {
+  id                     String        @id @default(uuid())
+  tenantId               String
+  bookingId              String        @unique
+  amount                 Float
+  currency               String
+  method                 PaymentMethod
+  status                 PaymentStatus @default(PENDING)
+  stripePaymentIntentId  String?       @unique
+  stripeChargeId         String?
+  refundId               String?
+  refundAmount           Float?
+  refundReason           String?
+  processedAt            DateTime?
+  createdAt              DateTime      @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("payments")
+}
+
+model Payout {
+  id               String       @id @default(uuid())
+  tenantId         String
+  driverId         String
+  amount           Float
+  currency         String
+  status           PayoutStatus @default(PENDING)
+  periodStart      DateTime
+  periodEnd        DateTime
+  tripsCount       Int
+  stripeTransferId String?      @unique
+  processedAt      DateTime?
+  createdAt        DateTime     @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([tenantId, driverId])
+  @@index([tenantId, status])
+  @@map("payouts")
+}
+
+// ─── PRICING ──────────────────────────────────────────────
+
+model PricingRule {
+  id               String      @id @default(uuid())
+  tenantId         String
+  zoneId           String?
+  vehicleType      VehicleType
+  baseFare         Float
+  perKmRate        Float
+  perMinuteRate    Float
+  minimumFare      Float
+  bookingFee       Float       @default(0)
+  nightMultiplier  Float       @default(1.5)
+  nightStartHour   Int         @default(22)
+  nightEndHour     Int         @default(6)
+  isActive         Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zone   Zone?  @relation(fields: [zoneId], references: [id])
+
+  @@unique([tenantId, zoneId, vehicleType])
+  @@index([tenantId, isActive])
+  @@map("pricing_rules")
+}
+
+model Zone {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  // Stored as JSON array of {latitude, longitude}
+  polygon     Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pricingRules PricingRule[]
+  surgePricing SurgePricing[]
+
+  @@index([tenantId, isActive])
+  @@map("zones")
+}
+
+model SurgePricing {
+  id          String   @id @default(uuid())
+  tenantId    String
+  zoneId      String?
+  multiplier  Float
+  reason      String
+  startTime   DateTime
+  endTime     DateTime
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zone   Zone?  @relation(fields: [zoneId], references: [id])
+
+  @@index([tenantId, isActive, startTime, endTime])
+  @@map("surge_pricing")
+}
+
+// ─── RATINGS ──────────────────────────────────────────────
+
+model Rating {
+  id            String     @id @default(uuid())
+  tenantId      String
+  bookingId     String
+  ratedByUserId String
+  ratedUserId   String
+  ratingType    RatingType
+  score         Int        // 1-5
+  comment       String?
+  createdAt     DateTime   @default(now())
+
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking     Booking @relation(fields: [bookingId], references: [id])
+  ratedByUser User    @relation("RatingGivenBy", fields: [ratedByUserId], references: [id])
+  ratedUser   User    @relation("RatingReceivedBy", fields: [ratedUserId], references: [id])
+
+  @@unique([bookingId, ratingType])
+  @@index([tenantId, ratedUserId])
+  @@map("ratings")
+}
+
+// ─── PROMOTIONS ───────────────────────────────────────────
+
+model Promotion {
+  id              String       @id @default(uuid())
+  tenantId        String
+  code            String
+  description     String
+  discountType    DiscountType
+  discountValue   Float
+  minimumFare     Float?
+  maximumDiscount Float?
+  usageLimit      Int?
+  usageCount      Int          @default(0)
+  perUserLimit    Int?
+  validFrom       DateTime
+  validUntil      DateTime
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@map("promotions")
+}
+
+// ─── CORPORATE ────────────────────────────────────────────
+
+model CorporateAccount {
+  id             String       @id @default(uuid())
+  tenantId       String
+  companyName    String
+  email          String
+  phone          String
+  address        String
+  creditLimit    Float        @default(0)
+  currentBalance Float        @default(0)
+  billingCycle   BillingCycle @default(MONTHLY)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@index([tenantId, isActive])
+  @@map("corporate_accounts")
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────
+
+model Notification {
+  id       String           @id @default(uuid())
+  tenantId String
+  userId   String
+  type     NotificationType
+  title    String
+  body     String
+  data     Json?
+  isRead   Boolean          @default(false)
+  sentAt   DateTime         @default(now())
+  readAt   DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, isRead])
+  @@index([tenantId, sentAt])
+  @@map("notifications")
+}
+
+// ─── SUPPORT ──────────────────────────────────────────────
+
+model SupportTicket {
+  id          String         @id @default(uuid())
+  tenantId    String
+  userId      String
+  bookingId   String?
+  subject     String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  assignedTo  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, userId])
+  @@map("support_tickets")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+enum DistanceUnit {
+  MILES
+  KILOMETRES
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  DISPATCHER
+  DRIVER
+  PASSENGER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum DriverStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUSPENDED
+  INACTIVE
+}
+
+enum DriverOnlineStatus {
+  ONLINE
+  OFFLINE
+  ON_TRIP
+}
+
+enum VehicleType {
+  STANDARD
+  EXECUTIVE
+  MPV
+  WAV
+}
+
+enum BookingStatus {
+  PENDING
+  SEARCHING
+  ACCEPTED
+  DRIVER_ARRIVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_DRIVER_FOUND
+}
+
+enum PaymentMethod {
+  CARD
+  CASH
+  CORPORATE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+}
+
+enum RatingType {
+  PASSENGER_RATES_DRIVER
+  DRIVER_RATES_PASSENGER
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum BillingCycle {
+  WEEKLY
+  MONTHLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+  UNPAID
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  DRIVER_ASSIGNED
+  DRIVER_ARRIVED
+  RIDE_STARTED
+  RIDE_COMPLETED
+  BOOKING_CANCELLED
+  PAYMENT_RECEIVED
+  DRIVER_APPROVED
+  DRIVER_REJECTED
+  DOCUMENT_EXPIRY
+  PAYOUT_PROCESSED
+  PROMO_CODE
+  GENERAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ApiKeyProvider {
+  GOOGLE_MAPS
+  TWILIO_ACCOUNT_SID
+  TWILIO_AUTH_TOKEN
+  STRIPE_PUBLISHABLE
+  STRIPE_SECRET
+}
+
+enum DocumentType {
+  DRIVING_LICENSE
+  INSURANCE
+  DBS_CHECK
+  VEHICLE_REGISTRATION
+  MOT_CERTIFICATE
+  PROFILE_PHOTO
+  VEHICLE_PHOTO
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}

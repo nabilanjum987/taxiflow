@@ -1,0 +1,1 @@
+{"version":3,"file":"stripe.webhook.d.ts","sourceRoot":"","sources":["stripe.webhook.ts"],"names":[],"mappings":"AAMA,OAAO,EAAE,OAAO,EAAE,QAAQ,EAAE,MAAM,SAAS,CAAC;AAyB5C,wBAAsB,mBAAmB,CAAC,GAAG,EAAE,OAAO,EAAE,GAAG,EAAE,QAAQ,GAAG,OAAO,CAAC,IAAI,CAAC,CA0OpF"}

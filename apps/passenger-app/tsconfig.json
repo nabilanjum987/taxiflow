@@ -1,0 +1,14 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "baseUrl": ".",
+    "paths": {
+      "@taxiflow/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@taxiflow/shared-utils": ["../../packages/shared-utils/src/index.ts"],
+      "@taxiflow/shared-constants": ["../../packages/shared-constants/src/index.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.d.ts", "expo-env.d.ts"]
+}

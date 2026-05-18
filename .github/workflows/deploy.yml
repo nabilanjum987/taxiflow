@@ -1,0 +1,153 @@
+# ============================================================
+# .github/workflows/deploy.yml
+# CI/CD pipeline: lint → typecheck → build → deploy
+# Triggers on push to main branch
+# ============================================================
+
+name: Deploy TaxiFlow
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/taxiflow-backend
+
+jobs:
+
+  # ─── QUALITY CHECKS ─────────────────────────────────────
+  quality:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck shared packages
+        run: |
+          pnpm --filter @taxiflow/shared-types typecheck
+          pnpm --filter @taxiflow/shared-utils typecheck
+          pnpm --filter @taxiflow/shared-constants typecheck
+
+      - name: Typecheck backend
+        run: pnpm --filter backend typecheck
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+
+      - name: Lint
+        run: pnpm --filter backend lint || true  # Non-blocking for now
+
+  # ─── BUILD & PUSH DOCKER IMAGE ───────────────────────────
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── DEPLOY TO PRODUCTION ────────────────────────────────
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://api.taxiflow.com/health
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            cd /opt/taxiflow
+
+            # Pull latest image
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/${{ github.repository }}/taxiflow-backend:latest
+
+            # Zero-downtime deploy
+            docker compose pull backend
+            docker compose up -d --no-deps backend
+
+            # Run migrations
+            docker compose exec -T backend sh -c "node node_modules/.bin/prisma migrate deploy"
+
+            # Health check
+            sleep 10
+            curl -f https://api.taxiflow.com/health || exit 1
+
+            # Clean up old images
+            docker image prune -f
+
+            echo "✅ Deployment successful"
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "🚀 Deployed successfully to production"
+          # In production: send Slack/Discord webhook notification
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          # In production: alert on-call engineer
