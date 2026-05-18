@@ -39,11 +39,17 @@ export const logger = winston.createLogger({
   format: combine(errors({ stack: true }), json()),
   defaultMeta: { service: 'taxiflow-backend' },
   transports: env.NODE_ENV === 'production' ? productionTransports : developmentTransports,
-  // Catch unhandled exceptions
+  // Catch unhandled exceptions — always mirror to console so startup failures are visible
   exceptionHandlers: [
+    new winston.transports.Console({
+      format: combine(colorize(), timestamp({ format: 'HH:mm:ss' }), errors({ stack: true }), devFormat),
+    }),
     new winston.transports.File({ filename: 'logs/exceptions.log' }),
   ],
   rejectionHandlers: [
+    new winston.transports.Console({
+      format: combine(colorize(), timestamp({ format: 'HH:mm:ss' }), errors({ stack: true }), devFormat),
+    }),
     new winston.transports.File({ filename: 'logs/rejections.log' }),
   ],
 });

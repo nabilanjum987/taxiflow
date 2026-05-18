@@ -52,6 +52,12 @@ export async function connectDatabase(): Promise<void> {
     logger.info('✅ Database connected');
   } catch (error) {
     logger.error('❌ Database connection failed', { error });
+    if (env.NODE_ENV === 'development') {
+      logger.warn(
+        '⚠️  Development mode: starting without database — use a reachable DATABASE_URL (see .env.example)',
+      );
+      return;
+    }
     process.exit(1);
   }
 }
