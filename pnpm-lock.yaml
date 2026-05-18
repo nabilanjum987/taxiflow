@@ -686,6 +686,13 @@ importers:
         version: 5.9.3
 
   packages/shared-utils:
+    dependencies:
+      '@taxiflow/shared-constants':
+        specifier: workspace:*
+        version: link:../shared-constants
+      '@taxiflow/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
     devDependencies:
       typescript:
         specifier: ^5.4.5

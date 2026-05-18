@@ -2,6 +2,10 @@
   "name": "@taxiflow/shared-utils",
   "version": "1.0.0",
   "main": "./src/index.ts",
+  "dependencies": {
+    "@taxiflow/shared-constants": "workspace:*",
+    "@taxiflow/shared-types": "workspace:*"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",

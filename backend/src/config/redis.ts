@@ -53,3 +53,34 @@ export async function disconnectRedis(): Promise<void> {
     logger.warn('Redis disconnect failed', { error });
   }
 }
+
+export async function cacheGet(key: string): Promise<string | null> {
+  try {
+    if (!env.REDIS_URL || env.NODE_ENV === 'development') return null;
+    return await redis.get(key);
+  } catch {
+    return null;
+  }
+}
+
+export async function cacheSet(key: string, value: string, ttl?: number): Promise<void> {
+  try {
+    if (!env.REDIS_URL || env.NODE_ENV === 'development') return;
+    if (ttl) {
+      await redis.set(key, value, 'EX', ttl);
+    } else {
+      await redis.set(key, value);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function cacheDel(key: string): Promise<void> {
+  try {
+    if (!env.REDIS_URL || env.NODE_ENV === 'development') return;
+    await redis.del(key);
+  } catch {
+    // ignore
+  }
+}
