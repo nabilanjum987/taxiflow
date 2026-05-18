@@ -35,7 +35,7 @@ import onboardingRoutes from './modules/onboarding/onboarding.routes';
 import { handleStripeWebhook } from './modules/webhooks/stripe.webhook';
 import { API_PREFIX } from '@taxiflow/shared-constants';
 
-const app = express();
+const app: express.Application = express();
 const httpServer = http.createServer(app);
 
 // CRITICAL: Stripe webhook must use raw body BEFORE express.json()
