@@ -1,4 +1,4 @@
-import 'dotenv/config';// app.ts — TaxiFlow Backend Phase 5 COMPLETE
+// app.ts — TaxiFlow Backend Phase 5 COMPLETE
 import 'dotenv/config';
 import express from 'express';
 import http from 'http';
@@ -34,9 +34,8 @@ import subscriptionRoutes from './modules/subscriptions/subscriptions.routes';
 import onboardingRoutes from './modules/onboarding/onboarding.routes';
 import { handleStripeWebhook } from './modules/webhooks/stripe.webhook';
 import { API_PREFIX } from '@taxiflow/shared-constants';
-console.log('🔍 app.ts loaded, starting bootstrap...');
 
-const app = express();
+const app: express.Application = express();
 const httpServer = http.createServer(app);
 
 // CRITICAL: Stripe webhook must use raw body BEFORE express.json()
@@ -100,6 +99,6 @@ process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
 process.on('SIGINT', () => { void shutdown('SIGINT'); });
 process.on('uncaughtException', e => { logger.error('uncaughtException', { e }); process.exit(1); });
 process.on('unhandledRejection', r => { logger.error('unhandledRejection', { r }); process.exit(1); });
-console.log('🔍 calling bootstrap now...');
+
 void bootstrap();
 export { app, httpServer };

@@ -41,3 +41,15 @@ export async function connectRedis(): Promise<void> {
     logger.warn('⚠️  Redis unavailable, continuing without cache');
   }
 }
+
+export async function disconnectRedis(): Promise<void> {
+  if (!env.REDIS_URL || env.NODE_ENV === 'development') {
+    return;
+  }
+  try {
+    await redis.quit();
+    logger.info('Redis disconnected');
+  } catch (error) {
+    logger.warn('Redis disconnect failed', { error });
+  }
+}
